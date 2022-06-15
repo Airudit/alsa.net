@@ -5,11 +5,11 @@ using System.Threading;
 
 namespace Alsa.Net.Internal
 {
-    class UnixSoundInDevice : IDisposable
+    public class UnixSoundInDevice : IDisposable
     {
         static readonly object RecordingInitializationLock = new();
 
-        public SoundDeviceSettings Settings { get; }
+        private SoundDeviceSettings Settings { get; }
 
         bool _recordingMute;
         IntPtr _recordingPcm;
@@ -23,7 +23,7 @@ namespace Alsa.Net.Internal
             Settings = settings;
         }
 
-        public void StartRecording(StreamBuffer saveStream, CancellationToken token)
+        public void StartRecording(Stream saveStream, CancellationToken token)
         {
             if (_wasDisposed)
                 throw new ObjectDisposedException(nameof(UnixSoundInDevice));
@@ -59,7 +59,7 @@ namespace Alsa.Net.Internal
             CloseRecordingPcm();
         }
         
-        unsafe void ReadStream(StreamBuffer saveStream, WavHeader header, ref IntPtr @params, ref int dir, CancellationToken cancellationToken)
+        unsafe void ReadStream(Stream saveStream, WavHeader header, ref IntPtr @params, ref int dir, CancellationToken cancellationToken)
         {
             ulong frames;
 
@@ -141,7 +141,7 @@ namespace Alsa.Net.Internal
 
             ThrowErrorMessage(InteropAlsa.snd_pcm_drain(_recordingPcm), ExceptionMessages.CanNotDropDevice);
             ThrowErrorMessage(InteropAlsa.snd_pcm_close(_recordingPcm), ExceptionMessages.CanNotCloseDevice);
-
+            this.RecordingStopped?.Invoke(this, new AlsaStoppedEventArgs());
             _recordingPcm = default;
         }
 

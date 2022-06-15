@@ -5,11 +5,12 @@ using System.Threading;
 
 namespace Alsa.Net.Internal
 {
-    class UnixSoundOutDevice : IDisposable
+    public class UnixSoundOutDevice : IDisposable
     {
         static readonly object PlaybackInitializationLock = new();
 
-        public SoundDeviceSettings Settings { get; }
+        public event EventHandler<AlsaStoppedEventArgs> PlaybackStopped;
+        private SoundDeviceSettings Settings { get; }
 
         bool _playbackMute;
         IntPtr _playbackPcm;
@@ -26,15 +27,15 @@ namespace Alsa.Net.Internal
             Settings = settings;
         }
 
-        public void Play(StreamBuffer wavStreamBuffer)
+        public void Play(Stream wavStream)
         {
             if (_wasDisposed)
                 throw new ObjectDisposedException(nameof(UnixSoundInDevice));
 
-            Play(wavStreamBuffer, CancellationToken.None);
+            Play(wavStream, CancellationToken.None);
         }
 
-        public void Play(StreamBuffer wavStreamBuffer, CancellationToken cancellationToken)
+        public void Play(Stream wavStream, CancellationToken cancellationToken)
         {
             if (_wasDisposed)
                 throw new ObjectDisposedException(nameof(UnixSoundInDevice));
@@ -43,12 +44,12 @@ namespace Alsa.Net.Internal
             {
                 var parameter = new IntPtr();
                 var dir = 0;
-                var header = WavHeader.FromStream(wavStreamBuffer);
+                var header = WavHeader.FromStream(wavStream);
             
                 this.playbackState = PlaybackState.Playing;
                 this.OpenPlaybackPcm();
                 this.PcmInitialize(this._playbackPcm, header, ref parameter, ref dir);
-                this.WriteStreamBuffer(wavStreamBuffer, header, ref parameter, ref dir, cancellationToken);
+                this.WriteStream(wavStream, header, ref parameter, ref dir, cancellationToken);
                 this.ClosePlaybackPcm();
             }
             else
@@ -60,7 +61,7 @@ namespace Alsa.Net.Internal
 
             }
         }
-        unsafe void WriteStreamBuffer(StreamBuffer wavStreamBuffer, WavHeader header, ref IntPtr @params, ref int dir, CancellationToken cancellationToken)
+        unsafe void WriteStream(Stream wavStream, WavHeader header, ref IntPtr @params, ref int dir, CancellationToken cancellationToken)
         {
             ulong frames;
 
@@ -72,7 +73,7 @@ namespace Alsa.Net.Internal
 
             fixed (byte* buffer = readBuffer)
             {
-                while (!_wasDisposed && !cancellationToken.IsCancellationRequested && wavStreamBuffer.Read(readBuffer) != 0)
+                while (!_wasDisposed && !cancellationToken.IsCancellationRequested && wavStream.Read(readBuffer) != 0)
                     ThrowErrorMessage(InteropAlsa.snd_pcm_writei(_playbackPcm, (IntPtr)buffer, frames), ExceptionMessages.CanNotWriteToDevice);
             }
         }
@@ -121,6 +122,16 @@ namespace Alsa.Net.Internal
             _playbackPcm = default;
         }
 
+        public void Stop()
+        {
+            if (this.playbackState == PlaybackState.Stopped)
+            {
+                return;
+            }
+
+            this.playbackState = PlaybackState.Stopped;
+            this.PlaybackStopped?.Invoke(this, new AlsaStoppedEventArgs());
+        }
 
         public void Dispose()
         {
